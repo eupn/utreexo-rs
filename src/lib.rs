@@ -20,7 +20,12 @@ impl Utreexo {
     }
 
     fn parent(&self, left: &Hash, right: &Hash) -> Hash {
-        let append = left.0.into_iter().map(|e| *e).chain(right.0.into_iter().map(|e| *e)).collect::<Vec<_>>();
+        let append = left
+            .0
+            .into_iter()
+            .map(|e| *e)
+            .chain(right.0.into_iter().map(|e| *e))
+            .collect::<Vec<_>>();
         hash(&append[..])
     }
 
