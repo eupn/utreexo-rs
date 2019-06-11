@@ -15,6 +15,28 @@ fn hash(bytes: &[u8]) -> Hash {
 #[derive(Debug, Copy, Clone)]
 pub struct Hash(pub [u8; 32]);
 
+impl Hash {
+    pub fn mini(&self) -> Minihash {
+        self.into()
+    }
+}
+
+pub const MINIHASH_LEN: usize = 12;
+
+#[derive(Debug, Copy, Clone)]
+pub struct Minihash(pub [u8; MINIHASH_LEN]);
+
+impl From<&Hash> for Minihash {
+    fn from(hash: &Hash) -> Self {
+        let mut minihash = [0u8; MINIHASH_LEN];
+        for (i, b) in hash.0.iter().enumerate().take(MINIHASH_LEN) {
+            minihash[i] = *b;
+        }
+
+        Minihash(minihash)
+    }
+}
+
 pub const ZERO_HASH: Hash = Hash([0u8; 32]);
 
 pub struct Utreexo {
@@ -76,8 +98,16 @@ impl Utreexo {
 
 #[cfg(test)]
 mod tests {
-    use crate::Utreexo;
+    use crate::{Utreexo, MINIHASH_LEN};
     use crate::hash;
+
+    #[test]
+    pub fn test_minishash() {
+        let hash = hash(b"test");
+        let minihash = hash.mini();
+
+        assert_eq!(hash.0[0..MINIHASH_LEN], minihash.0);
+    }
 
     #[test]
     pub fn test_add() {
