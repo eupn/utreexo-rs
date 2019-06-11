@@ -24,7 +24,7 @@ pub struct Utreexo {
 impl Utreexo {
     pub fn new(capacity: usize) -> Self {
         Utreexo {
-            acc: (0..capacity).into_iter().map(|_| None).collect::<Vec<_>>()
+            acc: vec![None; capacity]
         }
     }
 
