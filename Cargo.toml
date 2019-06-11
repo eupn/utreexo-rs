@@ -6,3 +6,4 @@ edition = "2018"
 description = "A dynamic hash-based accumulator optimized for the Bitcoin UTXO set"
 
 [dependencies]
+sha2 = "0.8.0"

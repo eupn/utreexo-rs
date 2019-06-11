@@ -1,6 +1,15 @@
-fn hash(_bytes: &[u8]) -> Hash {
-    // TODO: use real hash function
-    Hash([0u8; 32])
+use sha2::{Sha256, Digest};
+use std::io::Write;
+
+fn hash(bytes: &[u8]) -> Hash {
+    let mut sha = Sha256::new();
+    sha.input(bytes);
+    let res = sha.result();
+
+    let mut bytes = [0u8; 32];
+    res.to_vec().write(&mut bytes).unwrap();
+
+    Hash(bytes)
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -15,7 +24,7 @@ pub struct Utreexo {
 impl Utreexo {
     pub fn new(capacity: usize) -> Self {
         Utreexo {
-            acc: Vec::with_capacity(capacity),
+            acc: (0..capacity).into_iter().map(|_| None).collect::<Vec<_>>()
         }
     }
 
@@ -62,5 +71,22 @@ impl Utreexo {
         }
 
         self.acc[h] = n;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::Utreexo;
+    use crate::hash;
+
+    #[test]
+    pub fn test_add() {
+        let mut acc = Utreexo::new(10);
+
+        acc.add_one(&hash(b"test"));
+        acc.add_one(&hash(b"test2"));
+        acc.add_one(&hash(b"test3"));
+
+        println!("Acc: {:?}", acc.acc);
     }
 }
