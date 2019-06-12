@@ -1,7 +1,7 @@
-use sha2::{Sha256, Digest};
-use std::io::Write;
-use std::fmt::{Debug, Formatter, Error as FmtError};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::fmt::{Debug, Error as FmtError, Formatter};
+use std::io::Write;
 
 fn hash(bytes: &[u8]) -> Hash {
     let mut sha = Sha256::new();
@@ -39,14 +39,14 @@ pub struct Proof {
 #[derive(Debug)]
 pub struct Update<'a> {
     pub utreexo: &'a mut Utreexo,
-    pub updated: HashMap<Hash, ProofStep>
+    pub updated: HashMap<Hash, ProofStep>,
 }
 
 impl<'a> Update<'a> {
     pub fn proof(&self, leaf: &Hash) -> Proof {
         let mut proof = Proof {
             steps: vec![],
-            leaf: *leaf
+            leaf: *leaf,
         };
 
         let mut item = *leaf;
@@ -67,7 +67,7 @@ pub struct Utreexo {
 impl Utreexo {
     pub fn new(capacity: usize) -> Self {
         Utreexo {
-            acc: vec![vec![]; capacity]
+            acc: vec![vec![]; capacity],
         }
     }
 
@@ -117,11 +117,15 @@ impl Utreexo {
 
                     loop {
                         if height >= proof.steps.len() {
-                            if !self.acc[height].get(0).and_then(|h| Some(*h == hash)).unwrap_or(false) {
-                                return Err(())
+                            if !self.acc[height]
+                                .get(0)
+                                .and_then(|h| Some(*h == hash))
+                                .unwrap_or(false)
+                            {
+                                return Err(());
                             }
 
-                            return Ok(())
+                            return Ok(());
                         }
 
                         s = proof.steps[height];
@@ -146,7 +150,11 @@ impl Utreexo {
         }
     }
 
-    pub fn update<'a>(&'a mut self, insertions: &[Hash], deletions: &[Proof]) -> Result<Update<'a>, ()> {
+    pub fn update<'a>(
+        &'a mut self,
+        insertions: &[Hash],
+        deletions: &[Proof],
+    ) -> Result<Update<'a>, ()> {
         let mut new_roots = vec![Vec::<Hash>::new(); self.acc.len()];
 
         for (i, root) in self.acc.iter().enumerate() {
@@ -164,7 +172,6 @@ impl Utreexo {
         }
         new_roots[0].extend(insertions.iter().map(|h| *h));
 
-
         for i in 0..new_roots.len() {
             while new_roots[i].len() > 1 {
                 let a = new_roots[i][new_roots[i].len() - 2];
@@ -179,14 +186,20 @@ impl Utreexo {
                 }
 
                 new_roots[i + 1].push(hash);
-                updated.insert(a, ProofStep {
-                    hash: b,
-                    is_left: false
-                });
-                updated.insert(b, ProofStep {
-                    hash: a,
-                    is_left: true
-                });
+                updated.insert(
+                    a,
+                    ProofStep {
+                        hash: b,
+                        is_left: false,
+                    },
+                );
+                updated.insert(
+                    b,
+                    ProofStep {
+                        hash: a,
+                        is_left: true,
+                    },
+                );
             }
         }
 
@@ -239,8 +252,8 @@ impl Utreexo {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Utreexo};
     use crate::hash;
+    use crate::Utreexo;
 
     #[test]
     pub fn test_add_delete() {
@@ -255,10 +268,7 @@ mod tests {
 
         println!("Update: {:#?}", update);
 
-        let mut proofs = hashes
-            .iter()
-            .map(|h| update.proof(h))
-            .collect::<Vec<_>>();
+        let mut proofs = hashes.iter().map(|h| update.proof(h)).collect::<Vec<_>>();
 
         println!("Proofs: {:#?}", proofs);
 
