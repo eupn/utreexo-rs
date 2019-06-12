@@ -7,3 +7,4 @@ description = "A dynamic hash-based accumulator optimized for the Bitcoin UTXO s
 
 [dependencies]
 sha2 = "0.8.0"
+hex = "0.3.2"

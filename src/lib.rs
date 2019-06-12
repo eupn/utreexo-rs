@@ -1,56 +1,77 @@
 use sha2::{Sha256, Digest};
 use std::io::Write;
+use std::fmt::{Debug, Formatter, Error as FmtError};
+use std::collections::HashMap;
 
 fn hash(bytes: &[u8]) -> Hash {
     let mut sha = Sha256::new();
     sha.input(bytes);
     let res = sha.result();
+    let mut res_bytes = [0u8; 32];
+    res_bytes.copy_from_slice(res.as_slice());
 
-    let mut bytes = [0u8; 32];
-    res.to_vec().write(&mut bytes).unwrap();
-
-    Hash(bytes)
+    Hash(res_bytes)
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Copy, Clone, Hash, Eq, PartialEq)]
 pub struct Hash(pub [u8; 32]);
 
-impl Hash {
-    pub fn mini(&self) -> Minihash {
-        self.into()
-    }
-}
-
-pub const MINIHASH_LEN: usize = 12;
-
-#[derive(Debug, Copy, Clone)]
-pub struct Minihash(pub [u8; MINIHASH_LEN]);
-
-impl From<&Hash> for Minihash {
-    fn from(hash: &Hash) -> Self {
-        let mut minihash = [0u8; MINIHASH_LEN];
-        for (i, b) in hash.0.iter().enumerate().take(MINIHASH_LEN) {
-            minihash[i] = *b;
-        }
-
-        Minihash(minihash)
+impl Debug for Hash {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), FmtError> {
+        write!(f, "Hash({})", hex::encode(&self.0))
     }
 }
 
 pub const ZERO_HASH: Hash = Hash([0u8; 32]);
 
+#[derive(Debug, Copy, Clone)]
+pub struct ProofStep {
+    pub hash: Hash,
+    pub is_left: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct Proof {
+    pub steps: Vec<ProofStep>,
+    pub leaf: Hash,
+}
+
+#[derive(Debug)]
+pub struct Update<'a> {
+    pub utreexo: &'a mut Utreexo,
+    pub updated: HashMap<Hash, ProofStep>
+}
+
+impl<'a> Update<'a> {
+    pub fn proof(&self, leaf: &Hash) -> Proof {
+        let mut proof = Proof {
+            steps: vec![],
+            leaf: *leaf
+        };
+
+        let mut item = *leaf;
+        while let Some(s) = self.updated.get(&item) {
+            proof.steps.push(*s);
+            item = self.utreexo.parent(&item, &s);
+        }
+
+        proof
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Utreexo {
-    pub acc: Vec<Option<Hash>>,
+    pub acc: Vec<Vec<Hash>>,
 }
 
 impl Utreexo {
     pub fn new(capacity: usize) -> Self {
         Utreexo {
-            acc: vec![None; capacity]
+            acc: vec![vec![]; capacity]
         }
     }
 
-    fn parent(&self, left: &Hash, right: &Hash) -> Hash {
+    fn hash_pair(&self, left: &Hash, right: &Hash) -> Hash {
         let append = left
             .0
             .into_iter()
@@ -60,63 +81,193 @@ impl Utreexo {
         hash(&append[..])
     }
 
-    pub fn add_one(&mut self, l: &Hash) {
-        let mut n = *l;
-        let mut h = 0;
-        let mut r = self.acc[h].clone();
-        while let Some(hash) = &r {
-            let parent = self.parent(&hash, &n);
-            n = parent;
-            self.acc[h] = None;
-            h += 1;
-            r = self.acc[h];
+    fn parent(&self, h: &Hash, step: &ProofStep) -> Hash {
+        if step.is_left {
+            self.hash_pair(&step.hash, &h)
+        } else {
+            self.hash_pair(&h, &step.hash)
         }
-
-        self.acc[h] = Some(n);
     }
 
-    pub fn delete_one(&mut self, proof: &[Hash]) {
-        let mut n = None;
-        let mut h = 0;
-
-        while h < proof.len() {
-            let p = proof[h];
-            if let Some(hash) = n {
-                n = Some(self.parent(&p, &hash));
-            } else if self.acc[h].is_none() {
-                self.acc[h] = Some(p);
-            } else {
-                n = Some(self.parent(&p, &self.acc[h].unwrap_or(ZERO_HASH)));
+    fn find_root(&self, root: &Hash, roots: &[Hash]) -> (usize, bool) {
+        for (i, r) in roots.iter().enumerate() {
+            if root == r {
+                return (i, true);
             }
-
-            h += 1;
         }
 
-        self.acc[h] = n;
+        (0, false)
+    }
+
+    fn delete(&self, proof: &Proof, new_roots: &mut Vec<Vec<Hash>>) -> Result<(), ()> {
+        if self.acc.len() < proof.steps.len() || self.acc.get(proof.steps.len()).is_none() {
+            return Err(());
+        }
+
+        let mut height = 0;
+        let mut hash = proof.leaf;
+        let mut s;
+
+        loop {
+            if height < new_roots.len() {
+                let (index, ok) = self.find_root(&hash, &new_roots[height]);
+                if ok {
+                    // Remove hash from new_roots
+                    new_roots[height].remove(index);
+
+                    loop {
+                        if height >= proof.steps.len() {
+                            if !self.acc[height].get(0).and_then(|h| Some(*h == hash)).unwrap_or(false) {
+                                return Err(())
+                            }
+
+                            return Ok(())
+                        }
+
+                        s = proof.steps[height];
+                        hash = self.parent(&hash, &s);
+                        height += 1;
+                    }
+                }
+            }
+
+            if height >= proof.steps.len() {
+                return Err(());
+            }
+
+            while height > new_roots.len() {
+                new_roots.push(vec![]);
+            }
+
+            s = proof.steps[height];
+            new_roots[height].push(s.hash);
+            hash = self.parent(&hash, &s);
+            height += 1;
+        }
+    }
+
+    pub fn update<'a>(&'a mut self, insertions: &[Hash], deletions: &[Proof]) -> Result<Update<'a>, ()> {
+        let mut new_roots = vec![Vec::<Hash>::new(); self.acc.len()];
+
+        for (i, root) in self.acc.iter().enumerate() {
+            new_roots[i] = root.clone();
+        }
+
+        let mut updated = HashMap::<Hash, ProofStep>::new();
+
+        for d in deletions {
+            self.delete(d, &mut new_roots)?;
+        }
+
+        if new_roots.is_empty() {
+            new_roots.push(vec![]);
+        }
+        new_roots[0].extend(insertions.iter().map(|h| *h));
+
+
+        for i in 0..new_roots.len() {
+            while new_roots[i].len() > 1 {
+                let a = new_roots[i][new_roots[i].len() - 2];
+                let b = new_roots[i][new_roots[i].len() - 1];
+
+                new_roots[i].pop();
+                new_roots[i].pop();
+
+                let hash = self.hash_pair(&a, &b);
+                if new_roots.len() < i + 1 {
+                    new_roots.push(vec![]);
+                }
+
+                new_roots[i + 1].push(hash);
+                updated.insert(a, ProofStep {
+                    hash: b,
+                    is_left: false
+                });
+                updated.insert(b, ProofStep {
+                    hash: a,
+                    is_left: true
+                });
+            }
+        }
+
+        let cut_off = new_roots
+            .iter()
+            .rev()
+            .take_while(|roots| roots.is_empty())
+            .count();
+        let to_take = new_roots.len() - cut_off;
+
+        for (i, roots) in new_roots.into_iter().take(to_take).enumerate() {
+            if self.acc.len() <= i {
+                self.acc.push(vec![]);
+            }
+
+            if roots.is_empty() {
+                self.acc[i] = vec![];
+            } else {
+                self.acc[i] = roots;
+            }
+        }
+
+        Ok(Update {
+            utreexo: self,
+            updated,
+        })
+    }
+
+    pub fn verify(&self, proof: &Proof) -> bool {
+        let n = proof.steps.len();
+        if n >= self.acc.len() || self.acc[n].is_empty() {
+            return false;
+        }
+
+        let expected = self.acc[n][0];
+        let mut h = proof.leaf;
+        for s in proof.steps.iter() {
+            let hp = if s.is_left {
+                self.hash_pair(&s.hash, &h)
+            } else {
+                self.hash_pair(&h, &s.hash)
+            };
+
+            h = hp;
+        }
+
+        h == expected
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{Utreexo, MINIHASH_LEN};
+    use crate::{Utreexo};
     use crate::hash;
 
     #[test]
-    pub fn test_minishash() {
-        let hash = hash(b"test");
-        let minihash = hash.mini();
-
-        assert_eq!(hash.0[0..MINIHASH_LEN], minihash.0);
-    }
-
-    #[test]
-    pub fn test_add() {
+    pub fn test_add_delete() {
         let mut acc = Utreexo::new(10);
 
-        acc.add_one(&hash(b"test"));
-        acc.add_one(&hash(b"test2"));
-        acc.add_one(&hash(b"test3"));
+        let a = hash(b"a");
+        let b = hash(b"b");
+        let c = hash(b"c");
+        let hashes = [a, b, c];
 
-        println!("Acc: {:?}", acc.acc);
+        let update = acc.update(&hashes[..], &[]).unwrap();
+
+        println!("Update: {:#?}", update);
+
+        let mut proofs = hashes
+            .iter()
+            .map(|h| update.proof(h))
+            .collect::<Vec<_>>();
+
+        println!("Proofs: {:#?}", proofs);
+
+        assert!(acc.verify(&proofs[0]));
+        assert!(acc.verify(&proofs[1]));
+        assert!(acc.verify(&proofs[2]));
+
+        let update = acc.update(&[], &[proofs[0].clone()]).unwrap();
+
+        dbg!(acc);
     }
 }
