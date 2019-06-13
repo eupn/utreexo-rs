@@ -39,25 +39,25 @@ impl Proof {
     pub fn update(&mut self, update: &Update) -> Result<(), ()> {
         let mut h = self.leaf;
         for (i, curr_step) in self.steps.iter().enumerate() {
-            let contains_root = update.utreexo.acc
+            let contains_root = update
+                .utreexo
+                .acc
                 .get(i)
                 .and_then(|roots| {
-                    let root_equals = roots
-                        .get(0)
-                        .and_then(|rh| Some(*rh == h))
-                        .unwrap_or(false);
+                    let root_equals = roots.get(0).and_then(|rh| Some(*rh == h)).unwrap_or(false);
                     Some(root_equals)
-                }).unwrap_or(false);
+                })
+                .unwrap_or(false);
 
             if update.utreexo.acc.len() > i && contains_root {
                 self.steps.truncate(i);
-                return Ok(())
+                return Ok(());
             }
 
             let step = if let Some(step) = update.updated.get(&h) {
                 *step
             } else if i == self.steps.len() {
-                break
+                break;
             } else {
                 *curr_step
             };
