@@ -1,7 +1,6 @@
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fmt::{Debug, Error as FmtError, Formatter};
-use std::io::Write;
 
 fn hash(bytes: &[u8]) -> Hash {
     let mut sha = Sha256::new();
@@ -34,6 +33,34 @@ pub struct ProofStep {
 pub struct Proof {
     pub steps: Vec<ProofStep>,
     pub leaf: Hash,
+}
+
+impl Proof {
+    pub fn update(&mut self, update: &Update) -> Result<(), ()> {
+        let mut h = self.leaf;
+        for (i, curr_step) in self.steps.iter().enumerate() {
+            if update.utreexo.acc.len() > i
+                && update.utreexo.acc.get(i)
+                .and_then(|roots| Some(roots.get(0)
+                    .and_then(|rh| Some(*rh == h)).unwrap_or(false)))
+                .unwrap_or(false) {
+                self.steps.truncate(i);
+                return Ok(())
+            }
+
+            let step = if let Some(step) = update.updated.get(&h) {
+                *step
+            } else if i == self.steps.len() {
+                break
+            } else {
+                *curr_step
+            };
+
+            h = update.utreexo.parent(&h, &step);
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -272,12 +299,17 @@ mod tests {
 
         println!("Proofs: {:#?}", proofs);
 
-        assert!(acc.verify(&proofs[0]));
-        assert!(acc.verify(&proofs[1]));
-        assert!(acc.verify(&proofs[2]));
+        for proof in proofs.iter() {
+            assert!(acc.verify(proof));
+        }
 
         let update = acc.update(&[], &[proofs[0].clone()]).unwrap();
+        for proof in &mut proofs {
+            proof.update(&update).unwrap();
+        }
 
-        dbg!(acc);
+        for proof in proofs.iter().skip(1) {
+            assert!(acc.verify(&proof));
+        }
     }
 }
