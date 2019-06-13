@@ -1,6 +1,9 @@
+use crate::proof::{Proof, ProofStep};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fmt::{Debug, Error as FmtError, Formatter};
+
+pub mod proof;
 
 fn hash(bytes: &[u8]) -> Hash {
     let mut sha = Sha256::new();
@@ -18,54 +21,6 @@ pub struct Hash(pub [u8; 32]);
 impl Debug for Hash {
     fn fmt(&self, f: &mut Formatter) -> Result<(), FmtError> {
         write!(f, "Hash({})", hex::encode(&self.0))
-    }
-}
-
-pub const ZERO_HASH: Hash = Hash([0u8; 32]);
-
-#[derive(Debug, Copy, Clone)]
-pub struct ProofStep {
-    pub hash: Hash,
-    pub is_left: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct Proof {
-    pub steps: Vec<ProofStep>,
-    pub leaf: Hash,
-}
-
-impl Proof {
-    pub fn update(&mut self, update: &Update) -> Result<(), ()> {
-        let mut h = self.leaf;
-        for (i, curr_step) in self.steps.iter().enumerate() {
-            let contains_root = update
-                .utreexo
-                .roots
-                .get(i)
-                .and_then(|roots| {
-                    let root_equals = roots.get(0).and_then(|rh| Some(*rh == h)).unwrap_or(false);
-                    Some(root_equals)
-                })
-                .unwrap_or(false);
-
-            if update.utreexo.roots.len() > i && contains_root {
-                self.steps.truncate(i);
-                return Ok(());
-            }
-
-            let step = if let Some(step) = update.updated.get(&h) {
-                *step
-            } else if i == self.steps.len() {
-                break;
-            } else {
-                *curr_step
-            };
-
-            h = update.utreexo.parent(&h, &step);
-        }
-
-        Ok(())
     }
 }
 
@@ -214,7 +169,7 @@ impl Utreexo {
                 new_roots[i].pop();
 
                 let hash = self.hash_pair(&a, &b);
-                if new_roots.len() < i + 1 {
+                if new_roots.len() <= i + 1 {
                     new_roots.push(vec![]);
                 }
 
@@ -242,6 +197,13 @@ impl Utreexo {
             .take_while(|roots| roots.is_empty())
             .count();
         let to_take = new_roots.len() - cut_off;
+
+        // Check for accumulator overflow
+        for roots in new_roots.iter() {
+            if roots.len() > 1 {
+                return Err(());
+            }
+        }
 
         for (i, roots) in new_roots.into_iter().take(to_take).enumerate() {
             if self.roots.len() <= i {
@@ -290,7 +252,7 @@ mod tests {
 
     #[test]
     pub fn test_add_delete() {
-        let mut acc = Utreexo::new(10);
+        let mut acc = Utreexo::new(1); // Up to 3 elements
 
         let a = hash(b"a");
         let b = hash(b"b");
@@ -299,11 +261,7 @@ mod tests {
 
         let update = acc.update(&hashes[..], &[]).unwrap();
 
-        println!("Update: {:#?}", update);
-
         let mut proofs = hashes.iter().map(|h| update.proof(h)).collect::<Vec<_>>();
-
-        println!("Proofs: {:#?}", proofs);
 
         for proof in proofs.iter() {
             assert!(acc.verify(proof));
@@ -316,6 +274,41 @@ mod tests {
 
         for proof in proofs.iter().skip(1) {
             assert!(acc.verify(&proof));
+        }
+    }
+
+    // Test for accumulator overflow is handled. Note that this test may be slow.
+    #[test]
+    pub fn test_add_exceed() {
+        const MAX_CAPACITY: usize = 10; // Up to (2^capacity + 1) - 1 elements in accumulator
+
+        for capacity in 1..MAX_CAPACITY {
+            let mut acc = Utreexo::new(capacity);
+
+            // Construct 2^(max_elements + 1) hashes from two bytes
+            let max_elements = 2u16.pow((capacity as u32) + 1);
+            let hashes = (0..max_elements)
+                .into_iter()
+                .map(|i| hash(&[(i << 8) as u8, (i & 0xff) as u8]))
+                .collect::<Vec<_>>();
+
+            // Should not insert due to accumulator overflow
+            let update = acc.update(&hashes, &[]);
+            assert!(update.is_err());
+
+            // Should insert & verify with -1 element
+            let update = acc
+                .update(&hashes.iter().cloned().skip(1).collect::<Vec<_>>(), &[])
+                .unwrap();
+
+            let proofs = hashes
+                .iter()
+                .skip(1)
+                .map(|h| update.proof(h))
+                .collect::<Vec<_>>();
+            for proof in proofs.iter() {
+                assert!(acc.verify(&proof));
+            }
         }
     }
 }
