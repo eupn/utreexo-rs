@@ -41,7 +41,7 @@ impl Proof {
         for (i, curr_step) in self.steps.iter().enumerate() {
             let contains_root = update
                 .utreexo
-                .acc
+                .roots
                 .get(i)
                 .and_then(|roots| {
                     let root_equals = roots.get(0).and_then(|rh| Some(*rh == h)).unwrap_or(false);
@@ -49,7 +49,7 @@ impl Proof {
                 })
                 .unwrap_or(false);
 
-            if update.utreexo.acc.len() > i && contains_root {
+            if update.utreexo.roots.len() > i && contains_root {
                 self.steps.truncate(i);
                 return Ok(());
             }
@@ -94,13 +94,13 @@ impl<'a> Update<'a> {
 
 #[derive(Debug, Clone)]
 pub struct Utreexo {
-    pub acc: Vec<Vec<Hash>>,
+    pub roots: Vec<Vec<Hash>>,
 }
 
 impl Utreexo {
     pub fn new(capacity: usize) -> Self {
         Utreexo {
-            acc: vec![vec![]; capacity],
+            roots: vec![vec![]; capacity],
         }
     }
 
@@ -133,7 +133,7 @@ impl Utreexo {
     }
 
     fn delete(&self, proof: &Proof, new_roots: &mut Vec<Vec<Hash>>) -> Result<(), ()> {
-        if self.acc.len() < proof.steps.len() || self.acc.get(proof.steps.len()).is_none() {
+        if self.roots.len() < proof.steps.len() || self.roots.get(proof.steps.len()).is_none() {
             return Err(());
         }
 
@@ -150,7 +150,7 @@ impl Utreexo {
 
                     loop {
                         if height >= proof.steps.len() {
-                            if !self.acc[height]
+                            if !self.roots[height]
                                 .get(0)
                                 .and_then(|h| Some(*h == hash))
                                 .unwrap_or(false)
@@ -188,9 +188,9 @@ impl Utreexo {
         insertions: &[Hash],
         deletions: &[Proof],
     ) -> Result<Update<'a>, ()> {
-        let mut new_roots = vec![Vec::<Hash>::new(); self.acc.len()];
+        let mut new_roots = vec![Vec::<Hash>::new(); self.roots.len()];
 
-        for (i, root) in self.acc.iter().enumerate() {
+        for (i, root) in self.roots.iter().enumerate() {
             new_roots[i] = root.clone();
         }
 
@@ -244,14 +244,14 @@ impl Utreexo {
         let to_take = new_roots.len() - cut_off;
 
         for (i, roots) in new_roots.into_iter().take(to_take).enumerate() {
-            if self.acc.len() <= i {
-                self.acc.push(vec![]);
+            if self.roots.len() <= i {
+                self.roots.push(vec![]);
             }
 
             if roots.is_empty() {
-                self.acc[i] = vec![];
+                self.roots[i] = vec![];
             } else {
-                self.acc[i] = roots;
+                self.roots[i] = roots;
             }
         }
 
@@ -263,11 +263,11 @@ impl Utreexo {
 
     pub fn verify(&self, proof: &Proof) -> bool {
         let n = proof.steps.len();
-        if n >= self.acc.len() || self.acc[n].is_empty() {
+        if n >= self.roots.len() || self.roots[n].is_empty() {
             return false;
         }
 
-        let expected = self.acc[n][0];
+        let expected = self.roots[n][0];
         let mut h = proof.leaf;
         for s in proof.steps.iter() {
             let hp = if s.is_left {
