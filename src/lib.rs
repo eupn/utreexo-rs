@@ -172,6 +172,8 @@ impl Utreexo {
                 new_roots[i].pop();
 
                 let hash = self.hash_pair(&a, &b);
+
+                // Grow the accumulator
                 if new_roots.len() <= i + 1 {
                     new_roots.push(vec![]);
                 }
@@ -208,15 +210,15 @@ impl Utreexo {
             }
         }
 
-        for (i, roots) in new_roots.into_iter().take(to_take).enumerate() {
+        for (i, bucket) in new_roots.into_iter().take(to_take).enumerate() {
             if self.roots.len() <= i {
                 self.roots.push(None);
             }
 
-            if roots.is_empty() {
+            if bucket.is_empty() {
                 self.roots[i] = None;
             } else {
-                self.roots[i] = Some(roots[0]);
+                self.roots[i] = Some(bucket[0]);
             }
         }
 
