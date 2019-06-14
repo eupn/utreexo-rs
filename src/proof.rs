@@ -21,7 +21,7 @@ impl Proof {
                 .roots
                 .get(i)
                 .and_then(|roots| {
-                    let root_equals = roots.get(0).and_then(|rh| Some(*rh == h)).unwrap_or(false);
+                    let root_equals = roots.and_then(|rh| Some(rh == h)).unwrap_or(false);
                     Some(root_equals)
                 })
                 .unwrap_or(false);

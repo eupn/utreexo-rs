@@ -49,24 +49,24 @@ impl<'a> Update<'a> {
 
 #[derive(Debug, Clone)]
 pub struct Utreexo {
-    pub roots: Vec<Vec<Hash>>,
+    pub roots: Vec<Option<Hash>>,
 }
 
 impl Utreexo {
     pub fn new(capacity: usize) -> Self {
         Utreexo {
-            roots: vec![vec![]; capacity],
+            roots: vec![None; capacity],
         }
     }
 
     fn hash_pair(&self, left: &Hash, right: &Hash) -> Hash {
-        let append = left
+        let concat = left
             .0
             .into_iter()
-            .map(|e| *e)
-            .chain(right.0.into_iter().map(|e| *e))
+            .chain(right.0.into_iter())
+            .map(|b| *b)
             .collect::<Vec<_>>();
-        hash(&append[..])
+        hash(&concat[..])
     }
 
     fn parent(&self, h: &Hash, step: &ProofStep) -> Hash {
@@ -106,8 +106,7 @@ impl Utreexo {
                     loop {
                         if height >= proof.steps.len() {
                             if !self.roots[height]
-                                .get(0)
-                                .and_then(|h| Some(*h == hash))
+                                .and_then(|h| Some(h == hash))
                                 .unwrap_or(false)
                             {
                                 return Err(());
@@ -143,10 +142,15 @@ impl Utreexo {
         insertions: &[Hash],
         deletions: &[Proof],
     ) -> Result<Update<'a>, ()> {
-        let mut new_roots = vec![Vec::<Hash>::new(); self.roots.len()];
+        let mut new_roots = Vec::new();
 
-        for (i, root) in self.roots.iter().enumerate() {
-            new_roots[i] = root.clone();
+        for root in self.roots.iter() {
+            let mut vec = Vec::<Hash>::new();
+            if let Some(hash) = root {
+                vec.push(*hash);
+            }
+
+            new_roots.push(vec);
         }
 
         let mut updated = HashMap::<Hash, ProofStep>::new();
@@ -158,13 +162,12 @@ impl Utreexo {
         if new_roots.is_empty() {
             new_roots.push(vec![]);
         }
-        new_roots[0].extend(insertions.iter().map(|h| *h));
+        new_roots[0].extend_from_slice(insertions);
 
         for i in 0..new_roots.len() {
             while new_roots[i].len() > 1 {
                 let a = new_roots[i][new_roots[i].len() - 2];
                 let b = new_roots[i][new_roots[i].len() - 1];
-
                 new_roots[i].pop();
                 new_roots[i].pop();
 
@@ -207,13 +210,13 @@ impl Utreexo {
 
         for (i, roots) in new_roots.into_iter().take(to_take).enumerate() {
             if self.roots.len() <= i {
-                self.roots.push(vec![]);
+                self.roots.push(None);
             }
 
             if roots.is_empty() {
-                self.roots[i] = vec![];
+                self.roots[i] = None;
             } else {
-                self.roots[i] = roots;
+                self.roots[i] = Some(roots[0]);
             }
         }
 
@@ -225,11 +228,11 @@ impl Utreexo {
 
     pub fn verify(&self, proof: &Proof) -> bool {
         let n = proof.steps.len();
-        if n >= self.roots.len() || self.roots[n].is_empty() {
+        if n >= self.roots.len() || self.roots[n].is_none() {
             return false;
         }
 
-        let expected = self.roots[n][0];
+        let expected = self.roots[n];
         let mut h = proof.leaf;
         for s in proof.steps.iter() {
             let hp = if s.is_left {
@@ -241,7 +244,9 @@ impl Utreexo {
             h = hp;
         }
 
-        h == expected
+        expected
+            .and_then(|expected| Some(h == expected))
+            .unwrap_or(false)
     }
 }
 
