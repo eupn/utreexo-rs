@@ -15,28 +15,28 @@ pub struct Proof {
 impl Proof {
     pub fn update(&mut self, update: &Update) -> Result<(), ()> {
         let mut h = self.leaf;
-        for (i, curr_step) in self.steps.iter().enumerate() {
-            let contains_root = update
-                .utreexo
-                .roots
-                .get(i)
-                .and_then(|roots| {
-                    let root_equals = roots.and_then(|rh| Some(rh == h)).unwrap_or(false);
-                    Some(root_equals)
-                })
-                .unwrap_or(false);
-
-            if update.utreexo.roots.len() > i && contains_root {
+        for i in 0..=self.steps.len() {
+            if update.utreexo.roots.len() > i
+                && update
+                    .utreexo
+                    .roots
+                    .get(i)
+                    .and_then(|root| Some(root.and_then(|rh| Some(rh == h)).unwrap_or(false)))
+                    .unwrap_or(false)
+            {
                 self.steps.truncate(i);
                 return Ok(());
             }
 
             let step = if let Some(step) = update.updated.get(&h) {
+                self.steps.truncate(i);
+                self.steps.push(*step);
+
                 *step
             } else if i == self.steps.len() {
                 break;
             } else {
-                *curr_step
+                self.steps[i]
             };
 
             h = update.utreexo.parent(&h, &step);
