@@ -31,7 +31,7 @@ pub struct Update<'a> {
 }
 
 impl<'a> Update<'a> {
-    pub fn proof(&self, leaf: &Hash) -> Proof {
+    pub fn prove(&self, leaf: &Hash) -> Proof {
         let mut proof = Proof {
             steps: vec![],
             leaf: *leaf,
@@ -268,7 +268,7 @@ mod tests {
 
         let update = acc.update(&hashes[..], &[]).unwrap();
 
-        let mut proofs = hashes.iter().map(|h| update.proof(h)).collect::<Vec<_>>();
+        let mut proofs = hashes.iter().map(|h| update.prove(h)).collect::<Vec<_>>();
 
         for proof in proofs.iter() {
             assert!(acc.verify(proof));
@@ -311,7 +311,7 @@ mod tests {
             let proofs = hashes
                 .iter()
                 .skip(1)
-                .map(|h| update.proof(h))
+                .map(|h| update.prove(h))
                 .collect::<Vec<_>>();
             for proof in proofs.iter() {
                 assert!(acc.verify(&proof));
