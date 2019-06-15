@@ -20,7 +20,51 @@ pub struct Hash(pub [u8; 32]);
 
 impl Debug for Hash {
     fn fmt(&self, f: &mut Formatter) -> Result<(), FmtError> {
-        write!(f, "Hash({})", hex::encode(&self.0))
+        let s = hex::encode(&self.0);
+
+        // Used for testing
+        match s.as_str() {
+            "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb" => {
+                write!(f, "Hash(A)")
+            }
+            "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d" => {
+                write!(f, "Hash(B)")
+            }
+            "2e7d2c03a9507ae265ecf5b5356885a53393a2029d241394997265a1a25aefc6" => {
+                write!(f, "Hash(C)")
+            }
+            "18ac3e7343f016890c510e93f935261169d9e3f565436429830faf0934f4f8e4" => {
+                write!(f, "Hash(D)")
+            }
+            "3f79bb7b435b05321651daefd374cdc681dc06faa65e374e38337b88ca046dea" => {
+                write!(f, "Hash(E)")
+            }
+            "252f10c83610ebca1a059c0bae8255eba2f95be4d1d7bcfa89d7248a82d9f111" => {
+                write!(f, "Hash(F)")
+            }
+
+            "e5a01fee14e0ed5c48714f22180f25ad8365b53f9779f79dc4a3d7e93963f94a" => {
+                write!(f, "Hash(AB)")
+            }
+            "bffe0b34dba16bc6fac17c08bac55d676cded5a4ade41fe2c9924a5dde8f3e5b" => {
+                write!(f, "Hash(CD)")
+            }
+            "04fa33f8b4bd3db545fa04cdd51b462509f611797c7bfe5c944ee2bb3b2ed908" => {
+                write!(f, "Hash(EF)")
+            }
+
+            "5550fc504f47f6f1fe9e7eca497dbcec28bab880f68d6d9f914da898de7f0fac" => {
+                write!(f, "Hash(ABCD)")
+            }
+            "2ed829ee84eb60c409670c40b8559502bca2339197b4795e2057a8bbac3a898c" => {
+                write!(f, "Hash(EFCD)")
+            }
+            "23e314ee2b14a5895dc084ea6b175c4fd7792a2879c53e541595be0f675682db" => {
+                write!(f, "Hash(EFAB)")
+            }
+
+            _ => write!(f, "Hash({})", s),
+        }
     }
 }
 
@@ -210,6 +254,8 @@ impl Utreexo {
             }
         }
 
+        // Apply new roots to the accumulator
+        self.roots.truncate(to_take);
         for (i, bucket) in new_roots.into_iter().take(to_take).enumerate() {
             if self.roots.len() <= i {
                 self.roots.push(None);
@@ -230,25 +276,27 @@ impl Utreexo {
 
     pub fn verify(&self, proof: &Proof) -> bool {
         let n = proof.steps.len();
-        if n >= self.roots.len() || self.roots[n].is_none() {
+        if n >= self.roots.len() {
             return false;
         }
 
         let expected = self.roots[n];
-        let mut h = proof.leaf;
-        for s in proof.steps.iter() {
-            let hp = if s.is_left {
-                self.hash_pair(&s.hash, &h)
-            } else {
-                self.hash_pair(&h, &s.hash)
-            };
+        if let Some(expected) = expected {
+            let mut h = proof.leaf;
+            for s in proof.steps.iter() {
+                let hp = if s.is_left {
+                    self.hash_pair(&s.hash, &h)
+                } else {
+                    self.hash_pair(&h, &s.hash)
+                };
 
-            h = hp;
+                h = hp;
+            }
+
+            h == expected
+        } else {
+            false
         }
-
-        expected
-            .and_then(|expected| Some(h == expected))
-            .unwrap_or(false)
     }
 }
 
@@ -259,12 +307,15 @@ mod tests {
 
     #[test]
     pub fn test_add_delete() {
-        let mut acc = Utreexo::new(1); // Up to 3 elements
+        let mut acc = Utreexo::new(3);
 
         let a = hash(b"a");
         let b = hash(b"b");
         let c = hash(b"c");
-        let hashes = [a, b, c];
+        let d = hash(b"d");
+        let e = hash(b"e");
+        let f = hash(b"f");
+        let hashes = [a, b, c, d, e, f];
 
         let update = acc.update(&hashes[..], &[]).unwrap();
 
@@ -274,12 +325,12 @@ mod tests {
             assert!(acc.verify(proof));
         }
 
-        let update = acc.update(&[], &[proofs[0].clone()]).unwrap();
+        let update = acc.update(&[], &proofs[0..1]).unwrap();
         for proof in &mut proofs {
             proof.update(&update).unwrap();
         }
 
-        for proof in proofs.iter().skip(1) {
+        for proof in &proofs[1..] {
             assert!(acc.verify(&proof));
         }
     }
