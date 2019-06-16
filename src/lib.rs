@@ -282,18 +282,16 @@ impl Utreexo {
 
         let expected = self.roots[n];
         if let Some(expected) = expected {
-            let mut h = proof.leaf;
+            let mut current_parent = proof.leaf;
             for s in proof.steps.iter() {
-                let hp = if s.is_left {
-                    self.hash_pair(&s.hash, &h)
+                current_parent = if s.is_left {
+                    self.hash_pair(&s.hash, &current_parent)
                 } else {
-                    self.hash_pair(&h, &s.hash)
+                    self.hash_pair(&current_parent, &s.hash)
                 };
-
-                h = hp;
             }
 
-            h == expected
+            current_parent == expected
         } else {
             false
         }
