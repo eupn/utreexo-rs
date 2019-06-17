@@ -300,7 +300,7 @@ impl Utreexo {
 
 #[cfg(test)]
 mod tests {
-    use crate::hash;
+    use crate::{hash, Hash};
     use crate::Utreexo;
 
     #[test]
@@ -336,11 +336,30 @@ mod tests {
     // Test for accumulator overflow is handled. Note that this test may be slow.
     #[test]
     pub fn test_add_exceed() {
-        const MAX_CAPACITY: usize = 10; // Up to (2^capacity + 1) - 1 elements in accumulator
-
-        for capacity in 1..MAX_CAPACITY {
+        fn insert_and_verify(capacity: usize, hashes: &[Hash]) -> bool {
             let mut acc = Utreexo::new(capacity);
 
+            let update = acc.update(&hashes, &[]);
+            if let Ok(u) = update {
+                let proofs = hashes
+                    .iter()
+                    .map(|h| u.prove(h))
+                    .collect::<Vec<_>>();
+                for proof in proofs.iter() {
+                    if !acc.verify(&proof) {
+                        return false
+                    }
+                }
+
+                true
+            } else {
+                false
+            }
+        }
+
+        const MAX_CAPACITY: usize = 10; // Up to 2^capacity elements in accumulator
+
+        for capacity in 1..MAX_CAPACITY {
             // Construct 2^(max_elements + 1) hashes from two bytes
             let max_elements = 2u16.pow((capacity as u32) + 1);
             let hashes = (0..max_elements)
@@ -348,23 +367,16 @@ mod tests {
                 .map(|i| hash(&[(i << 8) as u8, (i & 0xff) as u8]))
                 .collect::<Vec<_>>();
 
-            // Should not insert due to accumulator overflow
-            let update = acc.update(&hashes, &[]);
-            assert!(update.is_err());
-
-            // Should insert & verify with -1 element
-            let update = acc
-                .update(&hashes.iter().cloned().skip(1).collect::<Vec<_>>(), &[])
-                .unwrap();
-
-            let proofs = hashes
-                .iter()
-                .skip(1)
-                .map(|h| update.prove(h))
-                .collect::<Vec<_>>();
-            for proof in proofs.iter() {
-                assert!(acc.verify(&proof));
+            // Insert elements without overflow
+            for cap in 0..capacity {
+                assert!(insert_and_verify(capacity, &hashes[..cap]));
             }
+
+            // Should not insert due to accumulator overflow
+            assert!(!insert_and_verify(capacity, &hashes[..]));
+
+            // Should insert & verify with one element skipped
+            assert!(insert_and_verify(capacity, &hashes[1..]));
         }
     }
 }
