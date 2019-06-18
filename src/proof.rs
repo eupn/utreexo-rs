@@ -1,11 +1,13 @@
 use crate::{Hash, Update};
 
+/// Defines a single step of Merkle Proof of inclusion.
 #[derive(Debug, Copy, Clone)]
 pub struct ProofStep {
     pub hash: Hash,
     pub is_left: bool,
 }
 
+/// Defines the Merkle Proof of inclusion for a specific element in the Utreexo accumulator.
 #[derive(Debug, Clone)]
 pub struct Proof {
     pub steps: Vec<ProofStep>,
@@ -13,6 +15,7 @@ pub struct Proof {
 }
 
 impl Proof {
+    /// Updates proof when accumulator state changes. Change is reflected via `Update` structure.
     pub fn update(&mut self, update: &Update) -> Result<(), ()> {
         let mut h = self.leaf;
         for i in 0..=self.steps.len() {

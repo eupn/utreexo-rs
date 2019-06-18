@@ -68,6 +68,7 @@ impl Debug for Hash {
     }
 }
 
+/// Updates made to the Utreexo accumulator, used to create proofs for inserted values.
 #[derive(Debug)]
 pub struct Update<'a> {
     pub utreexo: &'a mut Utreexo,
@@ -75,6 +76,7 @@ pub struct Update<'a> {
 }
 
 impl<'a> Update<'a> {
+    /// Create a proof for an element if that element was inserted during this Utreexo update.
     pub fn prove(&self, leaf: &Hash) -> Proof {
         let mut proof = Proof {
             steps: vec![],
@@ -91,6 +93,7 @@ impl<'a> Update<'a> {
     }
 }
 
+/// A Utreexo accumulator. Holds array of Merkle forest roots.
 #[derive(Debug, Clone)]
 pub struct Utreexo {
     pub roots: Vec<Option<Hash>>,
