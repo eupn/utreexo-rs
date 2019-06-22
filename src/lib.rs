@@ -303,8 +303,8 @@ impl Utreexo {
 
 #[cfg(test)]
 mod tests {
-    use crate::{hash, Hash};
     use crate::Utreexo;
+    use crate::{hash, Hash};
 
     #[test]
     pub fn test_add_delete() {
@@ -344,13 +344,10 @@ mod tests {
 
             let update = acc.update(&hashes, &[]);
             if let Ok(u) = update {
-                let proofs = hashes
-                    .iter()
-                    .map(|h| u.prove(h))
-                    .collect::<Vec<_>>();
+                let proofs = hashes.iter().map(|h| u.prove(h)).collect::<Vec<_>>();
                 for proof in proofs.iter() {
                     if !acc.verify(&proof) {
-                        return false
+                        return false;
                     }
                 }
 
