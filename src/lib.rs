@@ -1,90 +1,32 @@
 use crate::proof::{Proof, ProofStep};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::fmt::{Debug, Error as FmtError, Formatter};
+pub use ring::digest::{Algorithm, Context, Digest};
 
 pub mod proof;
 
-fn hash(bytes: &[u8]) -> Hash {
-    let mut sha = Sha256::new();
-    sha.input(bytes);
-    let res = sha.result();
-    let mut res_bytes = [0u8; 32];
-    res_bytes.copy_from_slice(res.as_slice());
-
-    Hash(res_bytes)
-}
-
-#[derive(Copy, Clone, Hash, Eq, PartialEq)]
-pub struct Hash(pub [u8; 32]);
-
-impl Debug for Hash {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), FmtError> {
-        let s = hex::encode(&self.0);
-
-        // Used for testing
-        match s.as_str() {
-            "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb" => {
-                write!(f, "Hash(A)")
-            }
-            "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d" => {
-                write!(f, "Hash(B)")
-            }
-            "2e7d2c03a9507ae265ecf5b5356885a53393a2029d241394997265a1a25aefc6" => {
-                write!(f, "Hash(C)")
-            }
-            "18ac3e7343f016890c510e93f935261169d9e3f565436429830faf0934f4f8e4" => {
-                write!(f, "Hash(D)")
-            }
-            "3f79bb7b435b05321651daefd374cdc681dc06faa65e374e38337b88ca046dea" => {
-                write!(f, "Hash(E)")
-            }
-            "252f10c83610ebca1a059c0bae8255eba2f95be4d1d7bcfa89d7248a82d9f111" => {
-                write!(f, "Hash(F)")
-            }
-
-            "e5a01fee14e0ed5c48714f22180f25ad8365b53f9779f79dc4a3d7e93963f94a" => {
-                write!(f, "Hash(AB)")
-            }
-            "bffe0b34dba16bc6fac17c08bac55d676cded5a4ade41fe2c9924a5dde8f3e5b" => {
-                write!(f, "Hash(CD)")
-            }
-            "04fa33f8b4bd3db545fa04cdd51b462509f611797c7bfe5c944ee2bb3b2ed908" => {
-                write!(f, "Hash(EF)")
-            }
-
-            "5550fc504f47f6f1fe9e7eca497dbcec28bab880f68d6d9f914da898de7f0fac" => {
-                write!(f, "Hash(ABCD)")
-            }
-            "2ed829ee84eb60c409670c40b8559502bca2339197b4795e2057a8bbac3a898c" => {
-                write!(f, "Hash(EFCD)")
-            }
-            "23e314ee2b14a5895dc084ea6b175c4fd7792a2879c53e541595be0f675682db" => {
-                write!(f, "Hash(EFAB)")
-            }
-
-            _ => write!(f, "Hash({})", s),
-        }
-    }
+fn hash(algo: &'static Algorithm, bytes: &[u8]) -> Digest {
+    let mut ctx = Context::new(algo);
+    ctx.update(bytes);
+    ctx.finish()
 }
 
 /// Updates made to the Utreexo accumulator, used to create proofs for inserted values.
 #[derive(Debug)]
 pub struct Update<'a> {
     pub utreexo: &'a mut Utreexo,
-    pub updated: HashMap<Hash, ProofStep>,
+    pub updated: HashMap<Vec<u8>, ProofStep>,
 }
 
 impl<'a> Update<'a> {
     /// Create a proof for an element if that element was inserted during this Utreexo update.
-    pub fn prove(&self, leaf: &Hash) -> Proof {
+    pub fn prove(&self, leaf: &Digest) -> Proof {
         let mut proof = Proof {
             steps: vec![],
             leaf: *leaf,
         };
 
         let mut item = *leaf;
-        while let Some(s) = self.updated.get(&item) {
+        while let Some(s) = self.updated.get(item.as_ref()) {
             proof.steps.push(*s);
             item = self.utreexo.parent(&item, &s);
         }
@@ -96,27 +38,29 @@ impl<'a> Update<'a> {
 /// A Utreexo accumulator. Holds array of Merkle forest roots.
 #[derive(Debug, Clone)]
 pub struct Utreexo {
-    pub roots: Vec<Option<Hash>>,
+    pub roots: Vec<Option<Digest>>,
+    hasher: &'static Algorithm,
 }
 
 impl Utreexo {
-    pub fn new(capacity: usize) -> Self {
+    pub fn new(hasher: &'static Algorithm, capacity: usize) -> Self {
         Utreexo {
             roots: vec![None; capacity],
+            hasher
         }
     }
 
-    fn hash_pair(&self, left: &Hash, right: &Hash) -> Hash {
+    fn hash_pair(&self, left: &Digest, right: &Digest) -> Digest {
         let concat = left
-            .0
+            .as_ref()
             .into_iter()
-            .chain(right.0.into_iter())
+            .chain(right.as_ref().into_iter())
             .map(|b| *b)
             .collect::<Vec<_>>();
-        hash(&concat[..])
+        hash(self.hasher, &concat[..])
     }
 
-    fn parent(&self, h: &Hash, step: &ProofStep) -> Hash {
+    fn parent(&self, h: &Digest, step: &ProofStep) -> Digest {
         if step.is_left {
             self.hash_pair(&step.hash, &h)
         } else {
@@ -124,9 +68,9 @@ impl Utreexo {
         }
     }
 
-    fn find_root(&self, root: &Hash, roots: &[Hash]) -> (usize, bool) {
+    fn find_root(&self, root: &Digest, roots: &[Digest]) -> (usize, bool) {
         for (i, r) in roots.iter().enumerate() {
-            if root == r {
+            if root.as_ref() == r.as_ref() {
                 return (i, true);
             }
         }
@@ -134,7 +78,7 @@ impl Utreexo {
         (0, false)
     }
 
-    fn delete(&self, proof: &Proof, new_roots: &mut Vec<Vec<Hash>>) -> Result<(), ()> {
+    fn delete(&self, proof: &Proof, new_roots: &mut Vec<Vec<Digest>>) -> Result<(), ()> {
         if self.roots.len() < proof.steps.len() || self.roots.get(proof.steps.len()).is_none() {
             return Err(());
         }
@@ -153,7 +97,7 @@ impl Utreexo {
                     loop {
                         if height >= proof.steps.len() {
                             if !self.roots[height]
-                                .and_then(|h| Some(h == hash))
+                                .and_then(|h| Some(h.as_ref() == hash.as_ref()))
                                 .unwrap_or(false)
                             {
                                 return Err(());
@@ -186,13 +130,13 @@ impl Utreexo {
 
     pub fn update<'a>(
         &'a mut self,
-        insertions: &[Hash],
+        insertions: &[Digest],
         deletions: &[Proof],
     ) -> Result<Update<'a>, ()> {
         let mut new_roots = Vec::new();
 
         for root in self.roots.iter() {
-            let mut vec = Vec::<Hash>::new();
+            let mut vec = Vec::<Digest>::new();
             if let Some(hash) = root {
                 vec.push(*hash);
             }
@@ -200,7 +144,7 @@ impl Utreexo {
             new_roots.push(vec);
         }
 
-        let mut updated = HashMap::<Hash, ProofStep>::new();
+        let mut updated = HashMap::<Vec<u8>, ProofStep>::new();
 
         for d in deletions {
             self.delete(d, &mut new_roots)?;
@@ -227,14 +171,14 @@ impl Utreexo {
 
                 new_roots[i + 1].push(hash);
                 updated.insert(
-                    a,
+                    a.as_ref().to_vec(),
                     ProofStep {
                         hash: b,
                         is_left: false,
                     },
                 );
                 updated.insert(
-                    b,
+                    b.as_ref().to_vec(),
                     ProofStep {
                         hash: a,
                         is_left: true,
@@ -294,7 +238,7 @@ impl Utreexo {
                 };
             }
 
-            current_parent == expected
+            current_parent.as_ref() == expected.as_ref()
         } else {
             false
         }
@@ -304,18 +248,21 @@ impl Utreexo {
 #[cfg(test)]
 mod tests {
     use crate::Utreexo;
-    use crate::{hash, Hash};
+    use crate::hash;
+    use ring::digest::{SHA256, Digest, Algorithm};
 
     #[test]
     pub fn test_add_delete() {
-        let mut acc = Utreexo::new(3);
+        static ALGO: &'static Algorithm = &SHA256;
 
-        let a = hash(b"a");
-        let b = hash(b"b");
-        let c = hash(b"c");
-        let d = hash(b"d");
-        let e = hash(b"e");
-        let f = hash(b"f");
+        let mut acc = Utreexo::new(ALGO, 3);
+
+        let a = hash(ALGO, b"a");
+        let b = hash(ALGO, b"b");
+        let c = hash(ALGO, b"c");
+        let d = hash(ALGO, b"d");
+        let e = hash(ALGO, b"e");
+        let f = hash(ALGO, b"f");
         let hashes = [a, b, c, d, e, f];
 
         let update = acc.update(&hashes[..], &[]).unwrap();
@@ -339,8 +286,10 @@ mod tests {
     // Test for accumulator overflow is handled. Note that this test may be slow.
     #[test]
     pub fn test_add_exceed() {
-        fn insert_and_verify(capacity: usize, hashes: &[Hash]) -> bool {
-            let mut acc = Utreexo::new(capacity);
+        static ALGO: &'static Algorithm = &SHA256;
+
+        fn insert_and_verify(capacity: usize, hashes: &[Digest]) -> bool {
+            let mut acc = Utreexo::new(ALGO, capacity);
 
             let update = acc.update(&hashes, &[]);
             if let Ok(u) = update {
@@ -364,7 +313,7 @@ mod tests {
             let max_elements = 2u16.pow((capacity as u32) + 1);
             let hashes = (0..max_elements)
                 .into_iter()
-                .map(|i| hash(&[(i << 8) as u8, (i & 0xff) as u8]))
+                .map(|i| hash(ALGO, &[(i << 8) as u8, (i & 0xff) as u8]))
                 .collect::<Vec<_>>();
 
             // Insert elements without overflow
