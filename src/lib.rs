@@ -1,6 +1,6 @@
 use crate::proof::{Proof, ProofStep};
-use std::collections::HashMap;
 pub use ring::digest::{Algorithm, Context, Digest};
+use std::collections::HashMap;
 
 pub mod proof;
 
@@ -46,7 +46,7 @@ impl Utreexo {
     pub fn new(hasher: &'static Algorithm, capacity: usize) -> Self {
         Utreexo {
             roots: vec![None; capacity],
-            hasher
+            hasher,
         }
     }
 
@@ -247,9 +247,9 @@ impl Utreexo {
 
 #[cfg(test)]
 mod tests {
-    use crate::Utreexo;
     use crate::hash;
-    use ring::digest::{SHA256, Digest, Algorithm};
+    use crate::Utreexo;
+    use ring::digest::{Algorithm, Digest, SHA256};
 
     #[test]
     pub fn test_add_delete() {

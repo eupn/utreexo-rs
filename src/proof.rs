@@ -24,7 +24,12 @@ impl Proof {
                     .utreexo
                     .roots
                     .get(i)
-                    .and_then(|root| Some(root.and_then(|rh| Some(rh.as_ref() == h.as_ref())).unwrap_or(false)))
+                    .and_then(|root| {
+                        Some(
+                            root.and_then(|rh| Some(rh.as_ref() == h.as_ref()))
+                                .unwrap_or(false),
+                        )
+                    })
                     .unwrap_or(false)
             {
                 self.steps.truncate(i);
